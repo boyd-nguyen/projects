@@ -18,10 +18,6 @@ This is a summary of all the statistical analyses carried out by me, using open 
 
 ## Data preparation
 
-``` {r message = FALSE, echo = FALSE}
-setwd("C:/Users/boydn/Desktop/Study/Data Analysis Projects/Web-based Positive Psychology Interventions/Data")
-```
-
 The following packages are loaded.
 ``` {r message = FALSE, warning = FALSE}
 library(tidyverse)
