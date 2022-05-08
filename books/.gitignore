@@ -1,0 +1,4 @@
+books_env
+.env
+.idea
+*.db
