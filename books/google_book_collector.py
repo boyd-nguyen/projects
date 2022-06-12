@@ -10,12 +10,21 @@ from datetime import datetime
 import logging
 from urllib.parse import urlencode
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s: %(message)s.")
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description=
+                                 """
+        This script collects book data from Google Books API matching specified keywords.
+        
+        Collected raw data and processed data are stored in the specified SQLite database, in api_response
+        and google_books, respectively.
+        
+        Requires a Google Books API key put in a GOOGLE_BOOK_API_KEY environment variable.
+                                 """, formatter_class=argparse.RawTextHelpFormatter)
+
 parser.add_argument("dbpath", help="Filepath of the database")
 parser.add_argument("query", help="Search term")
-args = parser.parse_args(['test2.db', 'lgbt'])
+args = parser.parse_args()
 
 dbpath = args.dbpath
 search_query = args.query
@@ -40,7 +49,7 @@ with db:
     db.execute(f"""
         create table if not exists api_response(
             request_url,
-            search_term check (search_term = "{search_query}"),
+            search_term,
             status,
             item_count,
             response,
@@ -63,7 +72,10 @@ logging.info("Start querying data from Google API...")
 
 while True:
     with db:
-        results_retrieved = sum([row[0] for row in db.execute("select item_count from api_response")])
+        results_retrieved = sum([row[0]
+                                 for row in
+                                 db.execute("select item_count from api_response where search_term = ?",
+                                            (search_query,))])
 
     if results_retrieved > 0:
         params['startIndex'] = results_retrieved
@@ -83,13 +95,15 @@ while True:
 
         logging.info("Inserting data to database...")
         with db:
-            db.execute("insert or ignore into api_response(request_url, status, item_count, response, retrieval_time) "
-                       "values (?,?,?,?,?)",
-                       (r.url, r.status_code, item_count, json.dumps(r.json()), datetime.utcnow()))
+            db.execute(
+                """
+                insert or ignore into api_response(request_url, search_term, status, item_count, response, retrieval_time)
+                values (?,?,?,?,?,?)
+                """,
+                (r.url, search_query, r.status_code, item_count, json.dumps(r.json()), datetime.utcnow()))
 
     sleep = random.uniform(3, 6)
     time.sleep(sleep)
-
 
 # Step 2: process data
 
@@ -139,7 +153,7 @@ for row in responses:
     items = json.loads(row[0])['items']
 
     for i, item in enumerate(items):
-        logging.info(f"Processing book {i+1}/{len(items)}")
+        logging.info(f"Processing book {i + 1}/{len(items)}")
         book_id = item['id']
         title = item['volumeInfo']['title']
         subtitle = item['volumeInfo'].get('subtitle')
@@ -148,6 +162,8 @@ for row in responses:
         publishedDate = item['volumeInfo'].get('publishedDate')
         description = item['volumeInfo'].get('description')
         issn = None
+        isbn_10 = None
+        isbn_13 = None
         if item['volumeInfo'].get('industryIdentifiers'):
             for inId in item['volumeInfo']['industryIdentifiers']:
                 if inId['type'] == "ISBN_10":
@@ -192,14 +208,15 @@ for row in responses:
         searchText = search_query
 
         with db:
-            db.execute("insert or ignore into google_books values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                       [book_id, title, subtitle, authors, publisher, publishedDate, description, isbn_10,
-                        isbn_13, issn, pageCount, height, width, thickness, mainCategory, categories, averageRating,
-                        ratingsCount, saleCountry, saleability, onSaleDate, isEbook, listPrice, lpCurrencyCode, retailPrice,
-                        rPCurrencyCode, searchText])
+            db.execute(
+                """
+                insert or ignore into google_books values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                [book_id, title, subtitle, authors, publisher, publishedDate, description, isbn_10,
+                 isbn_13, issn, pageCount, height, width, thickness, mainCategory, categories, averageRating,
+                 ratingsCount, saleCountry, saleability, onSaleDate, isEbook, listPrice, lpCurrencyCode, retailPrice,
+                 rPCurrencyCode, searchText])
 
     batch += 1
 
 logging.info("Finished.")
-
-
