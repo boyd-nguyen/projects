@@ -5,7 +5,6 @@ import time
 import requests
 import sqlite3
 import argparse
-from dotenv import load_dotenv
 from datetime import datetime
 import logging
 from urllib.parse import urlencode
@@ -27,8 +26,6 @@ if os.path.exists(dbpath):
         pass
     else:
         dbpath = input("Choose a new database:")
-
-load_dotenv(".env")
 
 db = sqlite3.connect(dbpath)
 
