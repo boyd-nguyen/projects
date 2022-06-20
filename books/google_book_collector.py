@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 parser = argparse.ArgumentParser()
 parser.add_argument("dbpath", help="Filepath of the database")
 parser.add_argument("query", help="Search term")
-args = parser.parse_args(['test2.db', 'lgbt'])
+args = parser.parse_args()
 
 dbpath = args.dbpath
 search_query = args.query
@@ -53,7 +53,7 @@ params = {
     'langRestrict': 'en',
     'orderBy': 'newest',
     'printType': 'books',
-    'key': os.environ.get('GOOGLE_BOOK_API_KEY'),
+    'key': os.environ['GOOGLE_BOOK_API_KEY'],
 }
 
 logging.info("Start querying data from Google API...")
