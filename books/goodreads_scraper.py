@@ -14,11 +14,16 @@ logger.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
-console_formatter = logging.Formatter(
-    "%(name)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(console_formatter)
+file_handler = logging.FileHandler('goodreads_scraper.log')
+file_handler.setLevel(logging.ERROR)
+
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(formatter)
+file_handler.setFormatter(formatter)
 
 logger.addHandler(console_handler)
+logger.addHandler(file_handler)
 
 
 def get_book_data(db, url, base_url):
@@ -40,24 +45,27 @@ def get_book_data(db, url, base_url):
 
         else:
             for i, link in enumerate(to_retrieve):
-                logger.info(f"""
-                            Retrieving {link}...
-                            Progress: {i + 1}/{len(to_retrieve)}
-                            """.strip())
+                try:
+                    logger.info(f"""
+                                Retrieving {link}...
+                                Progress: {i + 1}/{len(to_retrieve)}
+                                """.strip())
 
-                headers = {'user-agent': 'my-book-collection/0.0.1'}
-                r = requests.get(link, headers=headers)
-                r.raise_for_status()
+                    headers = {'user-agent': 'my-book-collection/0.0.1'}
+                    r = requests.get(link, headers=headers)
+                    r.raise_for_status()
 
-                logger.info('INSERTING RAW HTML TO DATABASE...')
+                    logger.info('INSERTING RAW HTML TO DATABASE...')
 
-                with db:
-                    db.execute(
-                        """
-                        REPLACE INTO raw_responses VALUES (?,?,?)
-                        """,
-                        (link, r.text, datetime.now(tz=tz.UTC))
-                    )
+                    with db:
+                        db.execute(
+                            """
+                            REPLACE INTO raw_responses VALUES (?,?,?)
+                            """,
+                            (link, r.text, datetime.now(tz=tz.UTC))
+                        )
+                except Exception as e:
+                    logger.error(f"{e}: {link}.")
 
                 logger.info('GETTING NEW LINKS...')
 
@@ -71,19 +79,29 @@ def get_book_data(db, url, base_url):
                     logger.info(f"FOUND NEW LINKS: {len(new_links)} LINKS.")
 
                     for j, new_link in enumerate(new_links):
-                        logger.info(f"""
-                            INSERTING NEW LINKS {j + 1}/{len(new_links)}
-                            """)
+                        try:
+                            if (r'book/show/' in new_link['href'] or
+                                    r'list/show/' in new_link['href']):
 
-                        new_href = urljoin(base_url, new_link['href'])
-                        logger.info(f"INSERTING {new_href}...")
-                        with db:
-                            db.execute(
-                                """
-                                INSERT OR IGNORE INTO raw_responses(link)
-                                VALUES (?)
-                                """,
-                                (new_href,))
+                                logger.info(
+                                  f"""
+                                  INSERTING NEW LINKS {j + 1}/{len(new_links)}
+                                  """)
+
+                                new_href = urljoin(base_url, new_link['href'])
+
+                                logger.info(f"INSERTING {new_href}...")
+
+                                with db:
+                                    db.execute(
+                                        """
+                                        INSERT OR IGNORE INTO 
+                                        raw_responses(link)
+                                        VALUES (?)
+                                        """,
+                                        (new_href,))
+                        except Exception as e:
+                            logger.error(f"{e}: {new_link}")
 
                 time.sleep(random.uniform(1, 3))
 
