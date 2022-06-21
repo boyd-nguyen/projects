@@ -81,7 +81,8 @@ def get_book_data(db, url, base_url):
                     for j, new_link in enumerate(new_links):
                         try:
                             if (r'book/show/' in new_link['href'] or
-                                    r'list/show/' in new_link['href']):
+                                    r'list/show/' in new_link['href'] or
+                                    r'list/tag/' in new_link['href']):
 
                                 logger.info(
                                   f"""
@@ -108,8 +109,7 @@ def get_book_data(db, url, base_url):
 
 if __name__ == "__main__":
     base_url = r'https://www.goodreads.com/'
-    start_url = r'https://www.goodreads.com/list/show/' \
-                r'264.Books_That_Everyone_Should_Read_At_Least_Once'
+    start_url = r'https://www.goodreads.com/list/tag/non-fiction'
 
     db = sqlite3.connect('goodreads_raw.db')
     db.execute(
