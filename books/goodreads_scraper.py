@@ -7,6 +7,21 @@ import logging
 from datetime import datetime
 from dateutil import tz
 from bs4 import BeautifulSoup
+import os
+
+
+#def fix_ownership(path):
+#   """Change the owner of the file to SUDO_UID"""
+
+#    uid = os.environ.get('SUDO_UID')
+#    gid = os.environ.get('SUDO_GID')
+#    if uid is not None:
+#        os.chown(path, int(uid), int(gid))
+
+
+#if not os.path.exists('goodreads_scraper.log'):
+#    open('goodreads_scraper.log', 'a').close()
+#    fix_ownership('goodreads_scraper.log')
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -14,8 +29,8 @@ logger.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('goodreads_scraper.log')
-file_handler.setLevel(logging.ERROR)
+file_handler = logging.FileHandler('goodreads_scraper.log', mode='a')
+file_handler.setLevel(logging.INFO)
 
 formatter = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(message)s")
@@ -25,7 +40,7 @@ file_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-
+    
 def get_book_data(db, url, base_url):
     db.execute("INSERT OR IGNORE INTO raw_responses(link) VALUES (?)",
                (url,))
@@ -70,7 +85,8 @@ def get_book_data(db, url, base_url):
                 logger.info('GETTING NEW LINKS...')
 
                 parsed = BeautifulSoup(r.text, 'html.parser')
-                new_links = parsed.select('a[href*="?page="],a.bookTitle')
+                selector = 'a[href*="?page="],a.bookTitle,a.listTitle'
+                new_links = parsed.select(selector)
 
                 if not new_links:
                     logger.warning("NO LINKS FOUND...")
@@ -112,6 +128,8 @@ if __name__ == "__main__":
     start_url = r'https://www.goodreads.com/list/tag/non-fiction'
 
     db = sqlite3.connect('goodreads_raw.db')
+#    fix_ownership('goodreads_raw.db')
+
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS raw_responses(
