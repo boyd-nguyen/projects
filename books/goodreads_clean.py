@@ -55,12 +55,17 @@ def process_string(string):
 
 
 def clean_to_database(clean, raw, staging):
-    staging.execute(
+    staging.executescript(
         """
         CREATE TABLE IF NOT EXISTS staging(
             url PRIMARY KEY,
             process_at
-            )
+            );
+            
+        CREATE TABLE IF NOT EXISTS error_links(
+            url PRIMARY KEY,
+            status
+            );
         """
     )
     staging.commit()
@@ -211,10 +216,10 @@ def clean_to_database(clean, raw, staging):
                         to be rescraped.
                         """)
                     clean.rollback()
-                    with raw_db:
-                        raw_db.execute(
+                    with staging:
+                        staging.execute(
                             """
-                            REPLACE INTO raw_responses(link)
+                            REPLACE INTO error_links(url)
                             VALUES (?)
                             """,
                             (link,))
