@@ -105,13 +105,14 @@ def clean_to_database(clean, raw, staging):
             to_clean = [process_string(string)
                         for string in to_clean]
 
-            raw_response = raw.execute(
+            raw_response = list(raw.execute(
                             f"""
                             SELECT link, response
                             FROM raw_responses
                             WHERE link IN ({','.join(to_clean)})
                               AND retrieval_time NOTNULL
-                            """)
+                            """))
+            raw.close()
 
             for row in raw_response:
                 link = row[0]

@@ -70,6 +70,12 @@ def get_book_data(db, url, base_url):
                     r = requests.get(link, headers=headers)
                     r.raise_for_status()
 
+                    parsed = BeautifulSoup(r.text, 'html.parser')
+
+                    if 'book/show' in link:
+                        title = parsed.find(id='bookTitle')
+                        title = title.text.strip()
+
                     logger.info('INSERTING RAW HTML TO DATABASE...')
 
                     with db:
@@ -79,33 +85,31 @@ def get_book_data(db, url, base_url):
                             """,
                             (link, r.text, datetime.now(tz=tz.UTC))
                         )
-                except Exception as e:
-                    logger.error(f"{e}: {link}.")
 
-                logger.info('GETTING NEW LINKS...')
+                    logger.info('GETTING NEW LINKS...')
 
-                parsed = BeautifulSoup(r.text, 'html.parser')
-                selector = 'a[href*="?page="],a.bookTitle,a.listTitle'
-                new_links = parsed.select(selector)
+                    selector = 'a[href*="?page="],a.bookTitle,a.listTitle'
+                    new_links = parsed.select(selector)
 
-                if not new_links:
-                    logger.warning("NO LINKS FOUND...")
+                    if not new_links:
+                        logger.warning("NO LINKS FOUND...")
 
-                else:
-                    logger.info(f"FOUND NEW LINKS: {len(new_links)} LINKS.")
+                    else:
+                        logger.info(
+                            f"FOUND NEW LINKS: {len(new_links)} LINKS.")
 
-                    for j, new_link in enumerate(new_links):
-                        try:
+                        for j, new_link in enumerate(new_links):
                             if (r'book/show/' in new_link['href'] or
                                     r'list/show/' in new_link['href'] or
                                     r'list/tag/' in new_link['href']):
-
                                 logger.info(
-                                  f"""
-                                  INSERTING NEW LINKS {j + 1}/{len(new_links)}
-                                  """)
+                                    f"""
+                                    INSERTING NEW LINKS 
+                                    {j + 1}/{len(new_links)}
+                                    """)
 
-                                new_href = urljoin(base_url, new_link['href'])
+                                new_href = urljoin(base_url,
+                                                   new_link['href'])
 
                                 logger.info(f"INSERTING {new_href}...")
 
@@ -117,10 +121,11 @@ def get_book_data(db, url, base_url):
                                         VALUES (?)
                                         """,
                                         (new_href,))
-                        except Exception as e:
-                            logger.error(f"{e}: {new_link}")
 
-                time.sleep(random.uniform(1, 3))
+                    time.sleep(random.uniform(2, 4))
+
+                except Exception as e:
+                    logger.error(f"{e}: {link}.")
 
 
 if __name__ == "__main__":
