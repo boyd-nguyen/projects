@@ -229,9 +229,9 @@ if __name__ == "__main__":
     # clean_db_path = 'goodreads_cleaned.db'
     # clean_db = sqlite3.connect(clean_db_path)
 
-    clean_db = connector.connect(user=os.environ['db_username'],
+    clean_db = connector.connect(user=os.environ['DB_USERNAME'],
                                  database='boyd_nguyen',
-                                 password=os.environ['db_password'],
+                                 password=os.environ['DB_PASSWORD'],
                                  host='34.82.140.19')
 
     clean_to_database(clean=clean_db, raw=raw_db, staging=staging)
