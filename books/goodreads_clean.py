@@ -187,7 +187,7 @@ def clean_to_database(clean, raw, staging):
                     logger.info("INSERT CLEANED DATA TO DATABASE...")
                     cur.execute(
                             """
-                            REPLACE INTO test
+                            REPLACE INTO goodreads_books
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                                     %s,%s)
                             """,
