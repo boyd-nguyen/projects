@@ -25,3 +25,25 @@ Given that Goodreads pages are static, its page source can be easily obtained by
 2. `goodreads_crawler.py`: using **selenium, pywb, warcio**
 
 This is to demonstrate another approach to web scraping, especially applicable to dynamic websites. The aim is to render the website in a headless browser, pass it through a warc-recording proxy to obtain web archive files that can be processed at a later stage. This method generally takes longer and is more storage-heavy, so it is not used in this project other than as a demonstration.
+
+### Database schema
+
+```
+CREATE TABLE IF NOT EXISTS goodreads_books(
+            book_id VARCHAR(255) PRIMARY KEY,
+            url VARCHAR(255) UNIQUE,
+            processed_at VARCHAR(40),
+            title VARCHAR(255),
+            book_series VARCHAR(255),
+            authors VARCHAR(1000),
+            ratings DOUBLE,
+            rating_count INT,
+            review_count INT,
+            description TEXT,
+            book_format VARCHAR(255),
+            book_edition VARCHAR(255),
+            number_of_pages INT,
+            awards VARCHAR(1000),
+            isbn13 VARCHAR(100)
+            );
+```

@@ -1,19 +1,17 @@
-import os
 import sqlite3
 from bs4 import BeautifulSoup
 import logging
 import re
 from datetime import datetime
 from dateutil import tz
-from mysql import connector
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
 
-file_handler = logging.FileHandler('goodreads_clean_html.log')
+file_handler = logging.FileHandler('../goodreads_clean_html.log')
 file_handler.setLevel(logging.INFO)
 
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -34,9 +32,8 @@ def get_book_id(url):
 def get_number(text):
     pattern = re.compile(r"([0-9,]+)")
     number = re.search(pattern, text)[1]
-    number = re.sub(',', '', number)
 
-    return int(number)
+    return number
 
 
 def get_url(db: sqlite3.Connection):
@@ -54,42 +51,28 @@ def process_string(string):
     return string
 
 
-def clean_to_database(clean, raw, staging):
-    staging.execute(
-        """
-        CREATE TABLE IF NOT EXISTS staging(
-            url PRIMARY KEY,
-            process_at
-            )
-        """
-    )
-    staging.commit()
-
-    cur = clean.cursor()
-
+def clean_to_database(clean_db, raw_db):
     while True:
         logger.info("UPDATE RAW RESPONSES FOR PROCESSING...")
-        urls = get_url(db=raw)
+        urls = get_url(db=raw_db)
 
         for url in urls:
-            logger.debug(f"INSERTING {url}...")
-            with staging:
-                staging.execute(
-                    """
-                    INSERT OR IGNORE
-                    INTO staging(url)
-                    VALUES (?)
-                    """,
-                    (url[0],))
+            clean_db.execute(
+                """
+                INSERT OR IGNORE 
+                INTO goodreads_books(url)
+                VALUES (?)
+                """,
+                (url[0],))
 
         logger.info("RETRIEVING RAW RESPONSES FOR PROCESSING...")
         to_clean = [row[0]
                     for row in
-                    staging.execute(
+                    clean_db.execute(
                         """
                         SELECT url 
-                        FROM staging
-                        WHERE process_at IS NULL
+                        FROM goodreads_books
+                        WHERE processed_at IS NULL
                         """)]
 
         if not to_clean:
@@ -100,12 +83,11 @@ def clean_to_database(clean, raw, staging):
             to_clean = [process_string(string)
                         for string in to_clean]
 
-            raw_response = raw.execute(
+            raw_response = raw_db.execute(
                             f"""
                             SELECT link, response
                             FROM raw_responses
                             WHERE link IN ({','.join(to_clean)})
-                              AND retrieval_time NOTNULL
                             """)
 
             for row in raw_response:
@@ -139,12 +121,12 @@ def clean_to_database(clean, raw, staging):
                     authors = [author.text
                                for author in
                                authors] if authors else None
-                    # author_links = [author['href']
-                    #                 for author in
-                    #                 authors] if authors else None
+                    author_links = [author['href']
+                                    for author in
+                                    authors] if authors else None
 
                     ratings = parsed.find('span', itemprop='ratingValue')
-                    ratings = float(ratings.text.strip()) if ratings else None
+                    ratings = ratings.text.strip() if ratings else None
 
                     rating_count = parsed.find('meta', itemprop='ratingCount')
                     if rating_count:
@@ -156,7 +138,8 @@ def clean_to_database(clean, raw, staging):
 
                     description = parsed.find(id='description')
                     if description:
-                        description = description.find(style='display:none')
+                        if description.find('a'):
+                            description.find('a').replaceWith('')
                         description = description.text.strip()
 
                     book_format = parsed.find('span', itemprop='bookFormat')
@@ -180,11 +163,11 @@ def clean_to_database(clean, raw, staging):
                     isbn_13 = isbn_13.text if isbn_13 else None
 
                     logger.info("INSERT CLEANED DATA TO DATABASE...")
-                    cur.execute(
+                    with clean_db:
+                        clean_db.execute(
                             """
-                            REPLACE INTO test
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                                    %s,%s)
+                            REPLACE INTO goodreads_books
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                             """,
                             (book_id, link, datetime.now(tz=tz.UTC), title,
                              book_series, str(authors), ratings, rating_count,
@@ -192,17 +175,6 @@ def clean_to_database(clean, raw, staging):
                              book_edition, number_of_pages, str(awards),
                              isbn_13)
                         )
-                    clean.commit()
-
-                    with staging:
-                        staging.execute(
-                            """
-                            REPLACE INTO staging
-                            VALUES (?,?)
-                            """,
-                            (link, datetime.now(tz=tz.UTC))
-                        )
-
                 except Exception as e:
                     logger.error(f"{e}: {link}")
                     logger.warning(f"""
@@ -210,7 +182,6 @@ def clean_to_database(clean, raw, staging):
                         Reinserting link back to raw database
                         to be rescraped.
                         """)
-                    clean.rollback()
                     with raw_db:
                         raw_db.execute(
                             """
@@ -221,23 +192,36 @@ def clean_to_database(clean, raw, staging):
 
 
 if __name__ == "__main__":
-    raw_db_path = 'goodreads_raw.db'
+    raw_db_path = '../goodreads_raw.db'
     raw_db = sqlite3.connect(raw_db_path)
 
-    staging_path = 'goodreads_staging.db'
-    staging = sqlite3.connect(staging_path)
-    # clean_db_path = 'goodreads_cleaned.db'
-    # clean_db = sqlite3.connect(clean_db_path)
+    clean_db_path = '../goodreads_cleaned.db'
+    clean_db = sqlite3.connect(clean_db_path)
 
-    clean_db = connector.connect(user=os.environ['db_username'],
-                                 database='boyd_nguyen',
-                                 password=os.environ['db_password'],
-                                 host='34.82.140.19')
-
-    clean_to_database(clean=clean_db, raw=raw_db, staging=staging)
+    clean_db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS goodreads_books(
+            book_id PRIMARY KEY,
+            url UNIQUE,
+            processed_at,
+            title,
+            book_series,
+            authors,
+            ratings,
+            rating_count,
+            review_count,
+            description,
+            book_format,
+            book_edition,
+            number_of_pages,
+            awards,
+            isbn13);
+        """
+    )
+    clean_db.commit()
+    clean_to_database(clean_db=clean_db, raw_db=raw_db)
     clean_db.close()
     raw_db.close()
-    staging_path.close()
 
 
 
