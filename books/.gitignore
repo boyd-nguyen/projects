@@ -3,3 +3,4 @@ books_env
 .idea
 *.db
 *.log
+__pycache__

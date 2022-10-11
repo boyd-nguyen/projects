@@ -47,6 +47,12 @@ def create_sqlite_schema(conn: sqlite3.Connection, schema: str) -> None:
                 questions_count,
                 topics_count
                 );
+                
+            CREATE TABLE IF NOT EXISTS archive_meta (
+                archive_id PRIMARY KEY,
+                process_date,
+                volume
+                );
             """
         )
 

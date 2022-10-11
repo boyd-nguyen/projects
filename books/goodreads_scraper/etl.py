@@ -173,6 +173,19 @@ def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
                     logger.error(f"{e}: {link}")
 
 
+def _update_archive_meta(db: sqlite3.Connection,
+                         archive_name: str,
+                         archive_volume: int) -> None:
+    db.execute("BEGIN")
+    db.execute("INSERT INTO archive_meta VALUES (?, ?, ?)",
+               (archive_name, datetime.now(tz=tz.UTC), archive_volume))
+    db.execute("COMMIT")
+
+
+def _db_in_use(db: sqlite3.Connection):
+    return db.in_transaction
+
+
 if __name__ == "__main__":
     raw_db = databases.connect_db("test.db")
     clean_db = databases.connect_db("clean.db")
