@@ -1,7 +1,7 @@
 import os
 import sqlite3
-import sys
-
+from pathlib import Path
+import time
 from bs4 import BeautifulSoup
 import logging
 import re
@@ -49,7 +49,6 @@ def get_url(db: sqlite3.Connection):
         SELECT link 
         FROM raw_responses 
         WHERE link like '%book/show%'
-          AND retrieval_time IS NOT NULL
         """)
     return urls
 
@@ -62,122 +61,217 @@ def process_string(string):
 def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
     databases.create_sqlite_schema(clean, schema="books")
 
-    while True:
-        logger.info("UPDATE RAW RESPONSES FOR PROCESSING...")
-        urls = get_url(db=raw)
+    logger.info("UPDATE RAW RESPONSES FOR PROCESSING...")
+    urls = get_url(db=raw)
 
-        logger.info("RETRIEVING RAW RESPONSES FOR PROCESSING...")
-        to_clean = raw.execute(
-            f"""
-                            SELECT link, response
-                            FROM raw_responses
-                            WHERE retrieval_time NOTNULL
-                            AND link LIKE '%/book/show/%'
-                            """)
+    logger.info("RETRIEVING RAW RESPONSES FOR PROCESSING...")
+    to_clean = raw.execute(
+        f"""
+                        SELECT link, response
+                        FROM raw_responses
+                        WHERE link LIKE '%/book/show/%'
+                        """)
 
-        if not to_clean:
-            logger.warning("NO MORE RAW RESPONSES TO PROCESS...")
-            break
+    for row in to_clean:
+        link = row[0]
+        response = row[1]
+
+        logger.info("PROCESSING RESPONSES...")
+        logger.debug(f"Processing url {link}...")
+
+        try:
+            parsed = BeautifulSoup(response, features="html.parser")
+        except TypeError:
+            logger.warning(f"""
+                The link {link} has not been re-recorded, and
+                there's no response to scrape.
+                """)
+            continue
+
+        data_map = _book_mapping()
+        data = parsed.find("script", id="__NEXT_DATA__")
+
+        logger.info(f'Getting book {link}')
+
+        data_map["book_id"] = get_book_id(link)
+
+        if data:
+            data = json.loads(data.text)
+            parent_dict = data['props']['pageProps']['apolloState']
+
+            for key in parent_dict:
+                if 'Book' in key:
+                    book_data = parent_dict[key]
+                if 'Work' in key:
+                    work_data = parent_dict[key]
+                if 'Series' in key:
+                    logger.info(f"Series in key: {'Series' in key}")
+                    series_data = parent_dict[key]
+                    data_map["book_series_title"] = series_data["title"]
+                    data_map["book_series_url"] = series_data["webUrl"]
+
+            data_map["title"] = book_data["titleComplete"]
+            for key in book_data:
+                if "description" in key:
+                    data_map["description"] = book_data[key]
+            data_map["link"] = book_data["webUrl"]
+
+            book_details = book_data["details"]
+            data_map["format"] = book_details["format"]
+            data_map["num_pages"] = book_details["numPages"]
+            data_map["publication_time"] = \
+                book_details["publicationTime"] / 1000 if book_details["publicationTime"] else None
+
+            data_map["publisher"] = book_details["publisher"]
+            data_map["isbn"] = book_details.get("isbn")
+            data_map["isbn_13"] = book_details.get("isbn_13")
+            data_map["language"] = book_details["language"]["name"]
+
+            work_details = work_data["details"]
+            data_map["num_of_awards"] = len(
+                work_details["awardsWon"])
+
+            stats = work_data["stats"]
+            data_map["average_rating"] = stats["averageRating"]
+            data_map["ratings_count"] = stats["ratingsCount"]
+            data_map["reviews_count"] = stats["textReviewsCount"]
+            data_map["rating_1_count"] = stats["ratingsCountDist"][0]
+            data_map["rating_2_count"] = stats["ratingsCountDist"][1]
+            data_map["rating_3_count"] = stats["ratingsCountDist"][2]
+            data_map["rating_4_count"] = stats["ratingsCountDist"][3]
+            data_map["rating_5_count"] = stats["ratingsCountDist"][4]
+
+            for key in work_data:
+                if "quotes" in key:
+                    quote = work_data[key]
+            data_map["quotes_count"] = quote["totalCount"]
+
+            for key in work_data:
+                if "questions" in key:
+                    question = work_data[key]
+            data_map["questions_count"] = question['totalCount']
+
+            for key in work_data:
+                if "topics" in key:
+                    topic = work_data[key]
+            data_map["topics_count"] = topic['totalCount']
 
         else:
-            for row in to_clean:
-                link = row[0]
-                response = row[1]
+            data = parsed.find(id="metacol")
+            if not data:
+                logger.error("ERROR CANNOT PARSE THIS!!!!!!!!")
+                continue
 
-                logger.info("PROCESSING RESPONSES...")
-                logger.debug(f"Processing url {link}...")
+            data_map["title"] = data.find(id="bookTitle").text.strip()
 
+            description = data.find(id="description")
+            if description:
+                description_text = description.find_all("span")[-1].text
+                data_map["description"] = description_text
+
+            data_map["link"] = link
+
+            book_format = data.find(attrs={'itemprop': 'bookFormat'})
+            if book_format:
+                data_map["format"] = book_format.text
+
+            num_pages = data.find(attrs={'itemprop': 'numberOfPages'})
+            if num_pages:
+                data_map["num_pages"] = _get_int(num_pages.text)[0]
+
+            details = data.find(id="details").find(class_="row",
+                                                   string=re.compile(
+                                                       "published",
+                                                       re.IGNORECASE))
+            if details:
+                publication_list = details.text.strip().split('\n')
+                publication_time = publication_list[1].strip()
                 try:
-                    parsed = BeautifulSoup(response, features="html.parser")
-                except TypeError:
-                    logger.warning(f"""
-                        The link {link} has not been re-recorded, and
-                        there's no response to scrape.
-                        """)
-                    continue
-
+                    data_map["publication_time"] = _convert_to_date(
+                        publication_time)
+                except ValueError:
+                    logger.error(f"{link}: cannot parse date")
                 try:
-                    logger.info(f'Getting book {link}')
-                    data_map = dict()
-                    data = parsed.find("script", id="__NEXT_DATA__")
-                    data = json.loads(data.text)
-                    parent_dict = data['props']['pageProps']['apolloState']
+                    publisher = publication_list[2].strip()
+                    data_map["publisher"] = _get_publisher(publisher)
+                except IndexError:
+                    logger.error(f"{link}: cannot get publisher")
 
-                    data_map["book_id"] = get_book_id(link)
-                    data_map["book_series_title"] = None
-                    data_map["book_series_url"] = None
+            book_data_box = data.find(id="bookDataBox")
 
-                    for key in parent_dict:
-                        if 'Book' in key:
-                            book_data = parent_dict[key]
-                        if 'Work' in key:
-                            work_data = parent_dict[key]
-                        if 'Series' in key:
-                            logger.info(f"Series in key: {'Series' in key}")
-                            series_data = parent_dict[key]
-                            data_map["book_series_title"] = series_data["title"]
-                            data_map["book_series_url"] = series_data["webUrl"]
+            series = book_data_box.find("div", string="Series")
+            if series:
+                series_title = series.find_next_sibling("div").text.strip()
+                series_url = series.find_next_sibling("div").find("a")["href"]
 
-                    data_map["title"] = book_data["titleComplete"]
-                    for key in book_data:
-                        if "description" in key:
-                            data_map["description"] = book_data[key]
-                    data_map["link"] = book_data["webUrl"]
+                base_url = "https://www.goodreads.com"
 
-                    book_details = book_data["details"]
-                    data_map["format"] = book_details["format"]
-                    data_map["num_pages"] = book_details["numPages"]
-                    data_map["publication_time"] = book_details[
-                        "publicationTime"]
-                    data_map["publisher"] = book_details["publisher"]
-                    data_map["isbn"] = book_details.get("isbn")
-                    data_map["isbn_13"] = book_details.get("isbn_13")
-                    data_map["language"] = book_details["language"]["name"]
+                data_map["book_series_title"] = series_title
+                data_map["book_series_url"] = base_url + series_url
 
-                    work_details = work_data["details"]
-                    data_map["num_of_awards"] = len(
-                        work_details["awardsWon"])
+            isbn = book_data_box.find("div", string="ISBN")
 
-                    stats = work_data["stats"]
-                    data_map["average_rating"] = stats["averageRating"]
-                    data_map["ratings_count"] = stats["ratingsCount"]
-                    data_map["reviews_count"] = stats["textReviewsCount"]
-                    data_map["rating_0_count"] = stats["ratingsCountDist"][0]
-                    data_map["rating_1_count"] = stats["ratingsCountDist"][1]
-                    data_map["rating_2_count"] = stats["ratingsCountDist"][2]
-                    data_map["rating_3_count"] = stats["ratingsCountDist"][3]
-                    data_map["rating_4_count"] = stats["ratingsCountDist"][4]
+            data_map["isbn_13"] = None
+            if isbn:
+                isbn = isbn.find_next_sibling("div")
+                if 'ISBN13' in isbn.text.strip():
+                    data_map["isbn_13"] = isbn.text.strip().split()[2].replace(
+                        ')',
+                        '')
 
-                    for key in work_data:
-                        if "quotes" in key:
-                            quote = work_data[key]
-                    data_map["quotes_count"] = quote["totalCount"]
+            data_map["isbn"] = isbn.text.strip().split()[0] if isbn else None
+            language = book_data_box.find(attrs={"itemprop": "inLanguage"})
+            data_map["language"] = language.text if language else None
 
-                    for key in work_data:
-                        if "questions" in key:
-                            question = work_data[key]
-                    data_map["questions_count"] = question['totalCount']
+            awards = book_data_box.find(attrs={"itemprop": "awards"})
+            if awards:
+                if awards.find_all(awards.find_all("a", class_="award")):
+                    num_of_awards = len(awards.find_all("a", class_="award"))
+                    data_map["num_of_awards"] = num_of_awards
 
-                    for key in work_data:
-                        if "topics" in key:
-                            topic = work_data[key]
-                    data_map["topics_count"] = topic['totalCount']
+            average_rating = data.find(attrs={"itemprop": "ratingValue"})
+            if average_rating:
+                data_map["average_rating"] = float(average_rating.text)
 
-                    logger.info("INSERT CLEANED DATA TO DATABASE...")
+            ratings_count = data.find(attrs={"itemprop": "ratingCount"})
+            data_map["ratings_count"] = int(ratings_count['content'])
 
-                    databases.insert_data_sqlite(clean,
-                                                 data_map,
-                                                 schema="books")
+            reviews_count = data.find(attrs={"itemprop": "reviewCount"})
+            data_map["reviews_count"] = int(reviews_count["content"])
 
-                except Exception as e:
-                    logger.error(f"{e}: {link}")
+            ratings_info = parsed.find(id="reviewControls")
+            ratings_info_list = ratings_info.find("script").text.split('\n')
+
+            for string in ratings_info_list:
+                if _is_rating_list(string):
+                    rating_list = _process_rating_list(string=string)
+
+            data_map["rating_1_count"] = int(rating_list[4])
+            data_map["rating_2_count"] = int(rating_list[3])
+            data_map["rating_3_count"] = int(rating_list[2])
+            data_map["rating_4_count"] = int(rating_list[1])
+            data_map["rating_5_count"] = int(rating_list[0])
+
+            questions = parsed.find(class_="moreReaderQA")
+
+            if questions:
+                questions = questions.find("a")
+                data_map["questions_count"] = int(
+                    _get_num_question(questions.text))
+            else:
+                data_map["questions_count"] = 0
+
+        logger.info("INSERT CLEANED DATA TO DATABASE...")
+        databases.insert_data_sqlite(clean,
+                                     data_map,
+                                     schema="books")
 
 
 def _update_archive_meta(db: sqlite3.Connection,
                          archive_name: str,
                          archive_volume: int) -> None:
     db.execute("BEGIN")
-    db.execute("INSERT INTO archive_meta VALUES (?, ?, ?)",
+    db.execute("REPLACE INTO archive_meta VALUES (?, ?, ?)",
                (archive_name, datetime.now(tz=tz.UTC), archive_volume))
     db.execute("COMMIT")
 
@@ -186,12 +280,127 @@ def _db_in_use(db: sqlite3.Connection):
     return db.in_transaction
 
 
+def _get_int(string):
+    pattern = '([0-9]+)'
+    value = re.findall(pattern=pattern, string=string)
+
+    return value
+
+
+def _is_rating_list(string):
+    pattern = r"\[([0-9]+[,]?\s?)+\]"
+    if re.search(pattern=pattern, string=string):
+        return True
+    else:
+        return None
+
+
+def _process_rating_list(string):
+    pure_digits = re.sub(r"[\[\]]", "", string)
+
+    return pure_digits.strip().split(",")
+
+
+def _convert_to_date(string):
+    pattern = r"\b([0123]?[0-9])(st|th|nd|rd)\b"
+    string = re.sub(pattern, r"\1", string)
+
+    date = datetime.strptime(string, "%B %d %Y")
+    date = datetime.date(date)
+
+    return time.mktime(date.timetuple())
+
+
+def _get_publisher(string):
+    return re.sub(r"(^by\b\s)(.+)", r"\2", string)
+
+
+def _get_num_question(string):
+    pattern = r"\b([0-9]+)\b (question)"
+
+    return re.search(pattern, string).group(1)
+
+
+def _book_mapping() -> dict:
+    mapping = {key: None for key in
+               ["book_id",
+                "title",
+                "description",
+                "link",
+                "book_series_title",
+                "book_series_url",
+                "format",
+                "num_pages",
+                "publication_time",
+                "publisher",
+                "isbn",
+                "isbn_13",
+                "language",
+                "num_of_awards",
+                "average_rating",
+                "ratings_count",
+                "reviews_count",
+                "rating_1_count",
+                "rating_2_count",
+                "rating_3_count",
+                "rating_4_count",
+                "rating_5_count",
+                "quotes_count",
+                "questions_count",
+                "topics_count"]
+               }
+
+    return mapping
+
+
 if __name__ == "__main__":
-    raw_db = databases.connect_db("test.db")
-    clean_db = databases.connect_db("clean.db")
-    try:
-        clean_to_database(clean=clean_db, raw=raw_db)
-        clean_db.close()
-    except KeyboardInterrupt:
-        clean_db.close()
-        sys.exit(0)
+    now = time.time()
+
+    while True:
+        check_time = time.time() + (60 * 15)
+
+        files = os.listdir("archive")
+
+        db = databases.connect_db("clean_16_oct.db")
+        databases.create_sqlite_schema(db, schema="books")
+
+        for file in files:
+
+            if Path(file).suffix != ".db":
+                logger.info("NOT A FILE...")
+                continue
+
+            db.execute("BEGIN")
+            db.execute(
+                """
+                INSERT OR IGNORE INTO archive_meta(archive_id) VALUES (?)
+                """,
+                (file,))
+            db.execute("COMMIT")
+
+        to_process = db.execute(
+            """
+            SELECT archive_id FROM archive_meta
+            WHERE process_date IS NULL
+            """)
+
+        for archive_id in to_process:
+            logger.info("Processing")
+            archive = databases.connect_db("archive/" + archive_id[0])
+            logger.info(archive_id[0])
+            clean_to_database(clean=db, raw=archive)
+            _update_archive_meta(db, archive_id[0], 123)
+
+        if time.time() < check_time:
+            logger.info("SLEEPING NOW")
+            time.sleep(check_time - time.time())
+
+print("Done")
+# raw_db = databases.connect_db("test.db")
+# clean_db = databases.connect_db("clean.db")
+# try:
+#     clean_to_database(clean=clean_db, raw=raw_db)
+#     clean_db.close()
+# except KeyboardInterrupt:
+#     clean_db.close()
+#     sys.exit(0)

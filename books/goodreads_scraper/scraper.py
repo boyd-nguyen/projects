@@ -33,6 +33,8 @@ console_handler.setLevel(logging.INFO)
 file_handler = logging.FileHandler('../goodreads_scraper.log', mode='a')
 file_handler.setLevel(logging.INFO)
 
+
+
 formatter = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
@@ -41,7 +43,7 @@ file_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-    
+
 def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
     _create_schema(raw_db)
 
@@ -52,9 +54,6 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
 
     now = time.time()
     while True:
-
-        flush_time = time.time() + (60*60*30)
-
         to_retrieve = [row[0] for row in
                        raw_db.execute(
                            """
@@ -69,7 +68,10 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
 
         else:
 
+            flush_time = time.time() + (60 * 60 * 1)
+
             for i, link in enumerate(to_retrieve):
+
                 logger.info(f"""
                             Retrieving {link}...
                             Progress: {i + 1}/{len(to_retrieve)}
@@ -123,19 +125,23 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
                             backup_db = _create_backup_db(backup_db_name)
                             _back_up_data(backup_db=backup_db, input_db=raw_db)
 
+                            flush_time = time.time() + (60 * 60 * 1)
+
                 time.sleep(random.uniform(2, 3))
 
 
 def _request_with_error_handling(url: str, **kwargs) -> requests.Response:
     headers = {'user-agent': 'my-book-collection/0.0.1',
                'Cookie': 'ccsid=215-1754205-4322857; locale=en; srb_8=1'}
-    try:
-        r = requests.get(url, headers=headers, **kwargs)
-    except requests.ConnectionError:
-        sleep_time = random.uniform(2, 10)
+
+    r = requests.get(url, headers=headers, **kwargs)
+
+    if r.status_code in [504]:
+        sleep_time = random.uniform(10, 20)
         time.sleep(sleep_time)
+        _request_with_error_handling(url, **kwargs)
     else:
-        r.raise_for_status()
+        logger.error(f"{url}: {r.status_code}")
     return r
 
 

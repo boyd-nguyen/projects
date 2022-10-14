@@ -14,12 +14,17 @@ formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 
+error_log = logging.FileHandler('error.log', mode='a')
+error_log.setLevel(logging.ERROR)
+error_log.setFormatter(formatter)
+
 fh = logging.FileHandler("scraper.log")
 fh.setLevel(logging.INFO)
 fh.setFormatter(formatter)
 
 logger.addHandler(ch)
 logger.addHandler(fh)
+logger.addHandler(error_log)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("dbname",
