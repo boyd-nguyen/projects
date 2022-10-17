@@ -149,19 +149,19 @@ else:
     # publisher = publication_list[2].strip()
     # data_map["publisher"] = get_publisher(publisher)
 
-    book_data_box = data.find(id="bookDataBox")
-
-    isbn = book_data_box.find("div", string="ISBN")
-
-    data_map["isbn_13"] = None
-    if isbn:
-        isbn = isbn.find_next_sibling("div")
-        if 'ISBN13' in isbn.text.strip():
-            data_map["isbn_13"] = isbn.text.strip().split()[2].replace(')', '')
-
-    data_map["isbn"] = isbn.text.strip().split()[0] if isbn else None
-    language = book_data_box.find(attrs={"itemprop": "inLanguage"})
-    data_map["language"] = language.text if language else None
+    # book_data_box = data.find(id="bookDataBox")
+    #
+    # isbn = book_data_box.find("div", string="ISBN")
+    #
+    # data_map["isbn_13"] = None
+    # if isbn:
+    #     isbn = isbn.find_next_sibling("div")
+    #     if 'ISBN13' in isbn.text.strip():
+    #         data_map["isbn_13"] = isbn.text.strip().split()[2].replace(')', '')
+    #
+    # data_map["isbn"] = isbn.text.strip().split()[0] if isbn else None
+    # language = book_data_box.find(attrs={"itemprop": "inLanguage"})
+    # data_map["language"] = language.text if language else None
 
     # awards = book_data_box.find(attrs={"itemprop": "awards"})
     # if awards.find_all(awards.find_all("a", class_="award")):
@@ -202,7 +202,7 @@ else:
     #
     # data_map["topics_count"] = None
 
-    series = book_data_box.find("div", string="Series")
+    # series = book_data_box.find("div", string="Series")
     # if series:
     #     series_title = series.find_next_sibling("div").text
     #     series_url = series.find_next_sibling("div")["href"]

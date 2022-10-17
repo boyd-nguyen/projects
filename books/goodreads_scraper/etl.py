@@ -17,10 +17,10 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('goodreads_clean.log')
-file_handler.setLevel(logging.INFO)
+file_handler = logging.FileHandler('goodreads_etl.log')
+file_handler.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
@@ -28,7 +28,6 @@ file_handler.setFormatter(formatter)
 
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
-
 
 
 def _get_book_id(url) -> str:
@@ -269,17 +268,13 @@ def clean_to_database(clean_conn: sqlite3.Connection,
         databases.insert_data_sqlite(clean_conn, data_map, schema="books")
 
 
-def _update_archive_meta(db_conn: sqlite3.Connection,
-                         archive_name: str,
-                         archive_volume: int) -> None:
+def update_archive_meta(db_conn: sqlite3.Connection,
+                        archive_name: str,
+                        archive_volume: int) -> None:
     db_conn.execute("BEGIN")
     db_conn.execute("REPLACE INTO archive_meta VALUES (?, ?, ?)",
                     (archive_name, datetime.now(tz=tz.UTC), archive_volume))
     db_conn.execute("COMMIT")
-
-
-def _db_in_use(db: sqlite3.Connection):
-    return db.in_transaction
 
 
 def _get_int(string) -> str:
@@ -389,7 +384,7 @@ if __name__ == "__main__":
             archive = databases.connect_db("archive/" + archive_id[0])
             logger.info(f"Processing {archive_id[0]}")
             clean_to_database(clean_conn=db, raw_conn=archive)
-            _update_archive_meta(db, archive_id[0], 123)
+            update_archive_meta(db, archive_id[0], 123)
 
         if time.time() < check_time:
             logger.info("SLEEPING NOW")
