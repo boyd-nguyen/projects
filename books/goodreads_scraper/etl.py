@@ -7,6 +7,7 @@ import logging
 import re
 from datetime import datetime
 from dateutil import tz
+from typing import Iterable, Union
 # from mysql import connector
 import json
 
@@ -29,14 +30,15 @@ logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 
-def get_book_id(url):
+
+def _get_book_id(url) -> str:
     pattern = re.compile(r"(book/show/)([^A-z-\.]+)")
     book_id = re.search(pattern, url)[2]
 
     return book_id
 
 
-def get_number(text):
+def _get_number(text) -> int:
     pattern = re.compile(r"([0-9,]+)")
     number = re.search(pattern, text)[1]
     number = re.sub(',', '', number)
@@ -44,8 +46,8 @@ def get_number(text):
     return int(number)
 
 
-def get_url(db: sqlite3.Connection):
-    urls = db.execute("""
+def _get_url(db_conn: sqlite3.Connection) -> Iterable:
+    urls = db_conn.execute("""
         SELECT link 
         FROM raw_responses 
         WHERE link like '%book/show%'
@@ -53,36 +55,35 @@ def get_url(db: sqlite3.Connection):
     return urls
 
 
-def process_string(string):
+def process_string(string) -> str:
     string = re.sub("(.+)", "'\\1'", string)
     return string
 
 
-def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
-    databases.create_sqlite_schema(clean, schema="books")
+def clean_to_database(clean_conn: sqlite3.Connection,
+                      raw_conn: sqlite3.Connection) -> None:
+    databases.create_sqlite_schema(clean_conn, schema="books")
 
     logger.info("UPDATE RAW RESPONSES FOR PROCESSING...")
-    urls = get_url(db=raw)
 
     logger.info("RETRIEVING RAW RESPONSES FOR PROCESSING...")
-    to_clean = raw.execute(
+    to_clean = raw_conn.execute(
         f"""
-                        SELECT link, response
-                        FROM raw_responses
-                        WHERE link LIKE '%/book/show/%'
-                        """)
+        SELECT link, response
+        FROM raw_responses
+        WHERE link LIKE '%/book/show/%'
+        """)
 
     for row in to_clean:
         link = row[0]
         response = row[1]
 
-        logger.info("PROCESSING RESPONSES...")
-        logger.debug(f"Processing url {link}...")
+        logger.info(f"Processing url {link}...")
 
         try:
             parsed = BeautifulSoup(response, features="html.parser")
         except TypeError:
-            logger.warning(f"""
+            logger.error(f"""
                 The link {link} has not been re-recorded, and
                 there's no response to scrape.
                 """)
@@ -93,9 +94,10 @@ def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
 
         logger.info(f'Getting book {link}')
 
-        data_map["book_id"] = get_book_id(link)
+        data_map["book_id"] = _get_book_id(link)
 
         if data:
+            logger.debug(f"Parsing JSON...")
             data = json.loads(data.text)
             parent_dict = data['props']['pageProps']['apolloState']
 
@@ -120,7 +122,8 @@ def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
             data_map["format"] = book_details["format"]
             data_map["num_pages"] = book_details["numPages"]
             data_map["publication_time"] = \
-                book_details["publicationTime"] / 1000 if book_details["publicationTime"] else None
+                book_details["publicationTime"] / 1000 if book_details[
+                    "publicationTime"] else None
 
             data_map["publisher"] = book_details["publisher"]
             data_map["isbn"] = book_details.get("isbn")
@@ -158,8 +161,9 @@ def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
 
         else:
             data = parsed.find(id="metacol")
+
             if not data:
-                logger.error("ERROR CANNOT PARSE THIS!!!!!!!!")
+                logger.error(f"ERROR CANNOT PARSE THIS: {link}")
                 continue
 
             data_map["title"] = data.find(id="bookTitle").text.strip()
@@ -187,7 +191,7 @@ def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
                 publication_list = details.text.strip().split('\n')
                 publication_time = publication_list[1].strip()
                 try:
-                    data_map["publication_time"] = _convert_to_date(
+                    data_map["publication_time"] = _convert_to_timestamp(
                         publication_time)
                 except ValueError:
                     logger.error(f"{link}: cannot parse date")
@@ -261,33 +265,31 @@ def clean_to_database(clean: sqlite3.Connection, raw: sqlite3.Connection):
             else:
                 data_map["questions_count"] = 0
 
-        logger.info("INSERT CLEANED DATA TO DATABASE...")
-        databases.insert_data_sqlite(clean,
-                                     data_map,
-                                     schema="books")
+        logger.debug("Inserting to database...")
+        databases.insert_data_sqlite(clean_conn, data_map, schema="books")
 
 
-def _update_archive_meta(db: sqlite3.Connection,
+def _update_archive_meta(db_conn: sqlite3.Connection,
                          archive_name: str,
                          archive_volume: int) -> None:
-    db.execute("BEGIN")
-    db.execute("REPLACE INTO archive_meta VALUES (?, ?, ?)",
-               (archive_name, datetime.now(tz=tz.UTC), archive_volume))
-    db.execute("COMMIT")
+    db_conn.execute("BEGIN")
+    db_conn.execute("REPLACE INTO archive_meta VALUES (?, ?, ?)",
+                    (archive_name, datetime.now(tz=tz.UTC), archive_volume))
+    db_conn.execute("COMMIT")
 
 
 def _db_in_use(db: sqlite3.Connection):
     return db.in_transaction
 
 
-def _get_int(string):
+def _get_int(string) -> str:
     pattern = '([0-9]+)'
     value = re.findall(pattern=pattern, string=string)
 
     return value
 
 
-def _is_rating_list(string):
+def _is_rating_list(string) -> Union[bool, None]:
     pattern = r"\[([0-9]+[,]?\s?)+\]"
     if re.search(pattern=pattern, string=string):
         return True
@@ -295,13 +297,13 @@ def _is_rating_list(string):
         return None
 
 
-def _process_rating_list(string):
+def _process_rating_list(string) -> str:
     pure_digits = re.sub(r"[\[\]]", "", string)
 
     return pure_digits.strip().split(",")
 
 
-def _convert_to_date(string):
+def _convert_to_timestamp(string) -> int:
     pattern = r"\b([0123]?[0-9])(st|th|nd|rd)\b"
     string = re.sub(pattern, r"\1", string)
 
@@ -311,11 +313,11 @@ def _convert_to_date(string):
     return time.mktime(date.timetuple())
 
 
-def _get_publisher(string):
+def _get_publisher(string) -> str:
     return re.sub(r"(^by\b\s)(.+)", r"\2", string)
 
 
-def _get_num_question(string):
+def _get_num_question(string) -> str:
     pattern = r"\b([0-9]+)\b (question)"
 
     return re.search(pattern, string).group(1)
@@ -367,7 +369,6 @@ if __name__ == "__main__":
         for file in files:
 
             if Path(file).suffix != ".db":
-                logger.info("NOT A FILE...")
                 continue
 
             db.execute("BEGIN")
@@ -385,22 +386,11 @@ if __name__ == "__main__":
             """)
 
         for archive_id in to_process:
-            logger.info("Processing")
             archive = databases.connect_db("archive/" + archive_id[0])
-            logger.info(archive_id[0])
-            clean_to_database(clean=db, raw=archive)
+            logger.info(f"Processing {archive_id[0]}")
+            clean_to_database(clean_conn=db, raw_conn=archive)
             _update_archive_meta(db, archive_id[0], 123)
 
         if time.time() < check_time:
             logger.info("SLEEPING NOW")
             time.sleep(check_time - time.time())
-
-print("Done")
-# raw_db = databases.connect_db("test.db")
-# clean_db = databases.connect_db("clean.db")
-# try:
-#     clean_to_database(clean=clean_db, raw=raw_db)
-#     clean_db.close()
-# except KeyboardInterrupt:
-#     clean_db.close()
-#     sys.exit(0)
