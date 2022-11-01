@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+<<<<<<< HEAD
 import os
 import time
 from pathlib import Path
@@ -8,6 +9,14 @@ from multiprocessing import Process
 
 import scraper
 from etl import clean_to_database, update_archive_meta
+=======
+import time
+import os
+from pathlib import Path
+
+import scraper
+import etl
+>>>>>>> 7550eb8aa90bd14fd4cc1380a6ec7c6c58590f2f
 import databases
 
 logger = logging.getLogger()

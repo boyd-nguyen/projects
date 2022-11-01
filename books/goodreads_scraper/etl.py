@@ -17,10 +17,10 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('goodreads_clean.log')
-file_handler.setLevel(logging.INFO)
+file_handler = logging.FileHandler('goodreads_etl.log')
+file_handler.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
@@ -279,10 +279,6 @@ def update_archive_meta(db_conn: sqlite3.Connection,
     db_conn.execute("REPLACE INTO archive_meta VALUES (?, ?, ?)",
                     (archive_name, datetime.now(tz=tz.UTC), archive_volume))
     db_conn.execute("COMMIT")
-
-
-def _db_in_use(db: sqlite3.Connection):
-    return db.in_transaction
 
 
 def _get_int(string) -> str:
