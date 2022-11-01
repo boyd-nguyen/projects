@@ -34,7 +34,6 @@ file_handler = logging.FileHandler('../goodreads_scraper.log', mode='a')
 file_handler.setLevel(logging.INFO)
 
 
-
 formatter = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
@@ -52,7 +51,6 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
                    (url,))
     raw_db.execute("COMMIT")
 
-    now = time.time()
     while True:
         to_retrieve = [row[0] for row in
                        raw_db.execute(
@@ -68,7 +66,7 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
 
         else:
 
-            flush_time = time.time() + (60 * 60 * 1)
+            flush_time = time.time() + (60 * 30)
 
             for i, link in enumerate(to_retrieve):
 
@@ -77,7 +75,12 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
                             Progress: {i + 1}/{len(to_retrieve)}
                             """.strip())
 
-                r = _request_with_error_handling(url=link)
+                try:
+                    r = _request_with_error_handling(url=link)
+                except Exception as e:
+                    logger.error(f"{link}: {e}")
+                    time.sleep(random.uniform(30, 60))
+                    continue
 
                 logger.info('INSERTING RAW HTML TO DATABASE...')
                 _update_db(conn=raw_db,
@@ -119,13 +122,13 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
                             backup_db_name = Path(
                                 f"archive/{int(time.time())}.db")
 
-                            if not backup_db_name.parent.exists():
-                                backup_db_name.mkdir(parents=True)
+                            # if not backup_db_name.parent.exists():
+                            #     backup_db_name.parent.mkdir(parents=True)
 
                             backup_db = _create_backup_db(backup_db_name)
                             _back_up_data(backup_db=backup_db, input_db=raw_db)
 
-                            flush_time = time.time() + (60 * 60 * 1)
+                            flush_time = time.time() + (60 * 60 * 0.5)
 
                 time.sleep(random.uniform(2, 3))
 
@@ -140,7 +143,7 @@ def _request_with_error_handling(url: str, **kwargs) -> requests.Response:
         sleep_time = random.uniform(10, 20)
         time.sleep(sleep_time)
         _request_with_error_handling(url, **kwargs)
-    else:
+    elif r.status_code != 200:
         logger.error(f"{url}: {r.status_code}")
     return r
 
