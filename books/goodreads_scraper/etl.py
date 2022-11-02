@@ -132,7 +132,7 @@ def clean_to_database(clean_conn: sqlite3.Connection,
 
                 work_details = work_data["details"]
                 data_map["num_of_awards"] = len(
-                    work_details["awardsWon"])
+                    work_details["awardsWon"]) if work_details else None
 
                 stats = work_data["stats"]
                 data_map["average_rating"] = stats["averageRating"]
@@ -152,7 +152,8 @@ def clean_to_database(clean_conn: sqlite3.Connection,
                 for key in work_data:
                     if "questions" in key:
                         question = work_data[key]
-                data_map["questions_count"] = question['totalCount']
+                if question:
+                    data_map["questions_count"] = question['totalCount']
 
                 for key in work_data:
                     if "topics" in key:
