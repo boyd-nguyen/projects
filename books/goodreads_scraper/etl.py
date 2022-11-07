@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from dateutil import tz
 from typing import Iterable, Union
+
 # from mysql import connector
 import json
 
@@ -19,7 +20,7 @@ logger.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('goodreads_etl.log')
+file_handler = logging.FileHandler("goodreads_etl.log")
 file_handler.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -37,20 +38,29 @@ def _get_book_id(url) -> str:
     return book_id
 
 
+def _get_author_id(url) -> str:
+    pattern = re.compile(r"(author/show/)([^A-z-\.]+)")
+    author_id = re.search(pattern, url)[2]
+
+    return author_id
+
+
 def _get_number(text) -> int:
     pattern = re.compile(r"([0-9,]+)")
     number = re.search(pattern, text)[1]
-    number = re.sub(',', '', number)
+    number = re.sub(",", "", number)
 
     return int(number)
 
 
 def _get_url(db_conn: sqlite3.Connection) -> Iterable:
-    urls = db_conn.execute("""
+    urls = db_conn.execute(
+        """
         SELECT link 
         FROM raw_responses 
         WHERE link like '%book/show%'
-        """)
+        """
+    )
     return urls
 
 
@@ -59,8 +69,9 @@ def process_string(string) -> str:
     return string
 
 
-def clean_to_database(clean_conn: sqlite3.Connection,
-                      raw_conn: sqlite3.Connection) -> None:
+def clean_to_database(
+    clean_conn: sqlite3.Connection, raw_conn: sqlite3.Connection
+) -> None:
     databases.create_sqlite_schema(clean_conn, schema="books")
 
     logger.info("UPDATE RAW RESPONSES FOR PROCESSING...")
@@ -71,7 +82,8 @@ def clean_to_database(clean_conn: sqlite3.Connection,
         SELECT link, response
         FROM raw_responses
         WHERE link LIKE '%/book/show/%'
-        """)
+        """
+    )
 
     for row in to_clean:
         link = row[0]
@@ -82,16 +94,18 @@ def clean_to_database(clean_conn: sqlite3.Connection,
         try:
             parsed = BeautifulSoup(response, features="html.parser")
         except TypeError:
-            logger.error(f"""
+            logger.error(
+                f"""
                 The link {link} has not been re-recorded, and
                 there's no response to scrape.
-                """)
+                """
+            )
             continue
 
         data_map = _book_mapping()
         data = parsed.find("script", id="__NEXT_DATA__")
 
-        logger.info(f'Getting book {link}')
+        logger.info(f"Getting book {link}")
 
         data_map["book_id"] = _get_book_id(link)
 
@@ -99,14 +113,15 @@ def clean_to_database(clean_conn: sqlite3.Connection,
             if data:
                 logger.debug(f"Parsing JSON...")
                 data = json.loads(data.text)
-                parent_dict = data['props']['pageProps']['apolloState']
+                parent_dict = data["props"]["pageProps"]["apolloState"]
 
+                # BOOK INFO
                 for key in parent_dict:
-                    if 'Book' in key:
+                    if "Book" in key:
                         book_data = parent_dict[key]
-                    if 'Work' in key:
+                    if "Work" in key:
                         work_data = parent_dict[key]
-                    if 'Series' in key:
+                    if "Series" in key:
                         logger.info(f"Series in key: {'Series' in key}")
                         series_data = parent_dict[key]
                         data_map["book_series_title"] = series_data["title"]
@@ -119,20 +134,22 @@ def clean_to_database(clean_conn: sqlite3.Connection,
                 data_map["link"] = book_data["webUrl"]
 
                 book_details = book_data["details"]
-                data_map["format"] = book_details["format"]
-                data_map["num_pages"] = book_details["numPages"]
-                data_map["publication_time"] = \
-                    book_details["publicationTime"] / 1000 if book_details[
-                        "publicationTime"] else None
-
-                data_map["publisher"] = book_details["publisher"]
-                data_map["isbn"] = book_details.get("isbn")
-                data_map["isbn_13"] = book_details.get("isbn_13")
-                data_map["language"] = book_details["language"]["name"]
+                if book_details:
+                    data_map["format"] = book_details["format"]
+                    data_map["num_pages"] = book_details["numPages"]
+                    if book_details["publicationTime"]:
+                        data_map["publication_time"] = (
+                            book_details["publicationTime"] / 1000
+                        )
+                    data_map["publisher"] = book_details["publisher"]
+                    data_map["isbn"] = book_details.get("isbn")
+                    data_map["isbn_13"] = book_details.get("isbn_13")
+                    data_map["language"] = book_details["language"]["name"]
 
                 work_details = work_data["details"]
-                data_map["num_of_awards"] = len(
-                    work_details["awardsWon"]) if work_details else None
+                data_map["num_of_awards"] = (
+                    len(work_details["awardsWon"]) if work_details else None
+                )
 
                 stats = work_data["stats"]
                 data_map["average_rating"] = stats["averageRating"]
@@ -147,18 +164,30 @@ def clean_to_database(clean_conn: sqlite3.Connection,
                 for key in work_data:
                     if "quotes" in key:
                         quote = work_data[key]
-                data_map["quotes_count"] = quote["totalCount"]
+                if quote:
+                    data_map["quotes_count"] = quote["totalCount"]
 
                 for key in work_data:
                     if "questions" in key:
                         question = work_data[key]
                 if question:
-                    data_map["questions_count"] = question['totalCount']
+                    data_map["questions_count"] = question["totalCount"]
 
                 for key in work_data:
                     if "topics" in key:
                         topic = work_data[key]
-                data_map["topics_count"] = topic['totalCount']
+                data_map["topics_count"] = topic["totalCount"]
+
+                # BOOK_AUTHOR INFO
+                for key in parent_dict:
+                    book_author_mapping = _book_author_mapping()
+                    if "Contributor" in key:
+                        author_inf = parent_dict[key]
+                        book_author_mapping["book_id"] = data_map["book_id"]
+                        author_id = _get_author_id(author_inf["webUrl"])
+                        book_author_mapping["author_id"] = author_id
+                        databases.insert_data_sqlite(clean_conn, book_author_mapping,
+                                                     "book_author")
 
             else:
                 data = parsed.find(id="metacol")
@@ -176,24 +205,24 @@ def clean_to_database(clean_conn: sqlite3.Connection,
 
                 data_map["link"] = link
 
-                book_format = data.find(attrs={'itemprop': 'bookFormat'})
+                book_format = data.find(attrs={"itemprop": "bookFormat"})
                 if book_format:
                     data_map["format"] = book_format.text
 
-                num_pages = data.find(attrs={'itemprop': 'numberOfPages'})
+                num_pages = data.find(attrs={"itemprop": "numberOfPages"})
                 if num_pages:
                     data_map["num_pages"] = _get_int(num_pages.text)[0]
 
-                details = data.find(id="details").find(class_="row",
-                                                       string=re.compile(
-                                                           "published",
-                                                           re.IGNORECASE))
+                details = data.find(id="details").find(
+                    class_="row", string=re.compile("published", re.IGNORECASE)
+                )
                 if details:
-                    publication_list = details.text.strip().split('\n')
+                    publication_list = details.text.strip().split("\n")
                     publication_time = publication_list[1].strip()
                     try:
                         data_map["publication_time"] = _convert_to_timestamp(
-                            publication_time)
+                            publication_time
+                        )
                     except ValueError:
                         logger.error(f"{link}: cannot parse date")
                     try:
@@ -219,10 +248,10 @@ def clean_to_database(clean_conn: sqlite3.Connection,
                 data_map["isbn_13"] = None
                 if isbn:
                     isbn = isbn.find_next_sibling("div")
-                    if 'ISBN13' in isbn.text.strip():
-                        data_map["isbn_13"] = isbn.text.strip().split()[2].replace(
-                            ')',
-                            '')
+                    if "ISBN13" in isbn.text.strip():
+                        data_map["isbn_13"] = (
+                            isbn.text.strip().split()[2].replace(")", "")
+                        )
 
                 data_map["isbn"] = isbn.text.strip().split()[0] if isbn else None
                 language = book_data_box.find(attrs={"itemprop": "inLanguage"})
@@ -239,13 +268,13 @@ def clean_to_database(clean_conn: sqlite3.Connection,
                     data_map["average_rating"] = float(average_rating.text)
 
                 ratings_count = data.find(attrs={"itemprop": "ratingCount"})
-                data_map["ratings_count"] = int(ratings_count['content'])
+                data_map["ratings_count"] = int(ratings_count["content"])
 
                 reviews_count = data.find(attrs={"itemprop": "reviewCount"})
                 data_map["reviews_count"] = int(reviews_count["content"])
 
                 ratings_info = parsed.find(id="reviewControls")
-                ratings_info_list = ratings_info.find("script").text.split('\n')
+                ratings_info_list = ratings_info.find("script").text.split("\n")
 
                 for string in ratings_info_list:
                     if _is_rating_list(string):
@@ -261,8 +290,7 @@ def clean_to_database(clean_conn: sqlite3.Connection,
 
                 if questions:
                     questions = questions.find("a")
-                    data_map["questions_count"] = int(
-                        _get_num_question(questions.text))
+                    data_map["questions_count"] = int(_get_num_question(questions.text))
                 else:
                     data_map["questions_count"] = 0
 
@@ -273,17 +301,19 @@ def clean_to_database(clean_conn: sqlite3.Connection,
             logger.error(f"{link}: {e}")
 
 
-def update_archive_meta(db_conn: sqlite3.Connection,
-                        archive_name: str,
-                        archive_volume: int) -> None:
+def update_archive_meta(
+    db_conn: sqlite3.Connection, archive_name: str, archive_volume: int
+) -> None:
     db_conn.execute("BEGIN")
-    db_conn.execute("REPLACE INTO archive_meta VALUES (?, ?, ?)",
-                    (archive_name, datetime.now(tz=tz.UTC), archive_volume))
+    db_conn.execute(
+        "REPLACE INTO archive_meta VALUES (?, ?, ?)",
+        (archive_name, datetime.now(tz=tz.UTC), archive_volume),
+    )
     db_conn.execute("COMMIT")
 
 
 def _get_int(string) -> str:
-    pattern = '([0-9]+)'
+    pattern = "([0-9]+)"
     value = re.findall(pattern=pattern, string=string)
 
     return value
@@ -324,35 +354,45 @@ def _get_num_question(string) -> str:
 
 
 def _book_mapping() -> dict:
-    mapping = {key: None for key in
-               ["book_id",
-                "title",
-                "description",
-                "link",
-                "book_series_title",
-                "book_series_url",
-                "format",
-                "num_pages",
-                "publication_time",
-                "publisher",
-                "isbn",
-                "isbn_13",
-                "language",
-                "num_of_awards",
-                "average_rating",
-                "ratings_count",
-                "reviews_count",
-                "rating_1_count",
-                "rating_2_count",
-                "rating_3_count",
-                "rating_4_count",
-                "rating_5_count",
-                "quotes_count",
-                "questions_count",
-                "topics_count"]
-               }
+    mapping = {
+        key: None
+        for key in [
+            "book_id",
+            "title",
+            "description",
+            "link",
+            "book_series_title",
+            "book_series_url",
+            "format",
+            "num_pages",
+            "publication_time",
+            "publisher",
+            "isbn",
+            "isbn_13",
+            "language",
+            "num_of_awards",
+            "average_rating",
+            "ratings_count",
+            "reviews_count",
+            "rating_1_count",
+            "rating_2_count",
+            "rating_3_count",
+            "rating_4_count",
+            "rating_5_count",
+            "quotes_count",
+            "questions_count",
+            "topics_count",
+        ]
+    }
 
     return mapping
+
+
+def _book_author_mapping() -> dict:
+    return {
+        "book_id": None,
+        "author_id": None
+    }
 
 
 if __name__ == "__main__":
@@ -376,14 +416,16 @@ if __name__ == "__main__":
                 """
                 INSERT OR IGNORE INTO archive_meta(archive_id) VALUES (?)
                 """,
-                (file,))
+                (file,),
+            )
             db.execute("COMMIT")
 
         to_process = db.execute(
             """
             SELECT archive_id FROM archive_meta
             WHERE process_date IS NULL
-            """)
+            """
+        )
 
         for archive_id in to_process:
             archive = databases.connect_db("archive/" + archive_id[0])

@@ -16,11 +16,10 @@ logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 ch.setFormatter(formatter)
 
-error_log = logging.FileHandler('error.log', mode='a')
+error_log = logging.FileHandler("error.log", mode="a")
 error_log.setLevel(logging.ERROR)
 error_log.setFormatter(formatter)
 
@@ -33,16 +32,16 @@ logger.addHandler(fh)
 logger.addHandler(error_log)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("rawdb",
-                    help="Name of the database to store raw responses")
-parser.add_argument("cleandb",
-                    help="Name of the database to store cleaned data")
+parser.add_argument("rawdb", help="Name of the database to store raw responses")
+parser.add_argument("cleandb", help="Name of the database to store cleaned data")
 args = parser.parse_args()
 
 
-def master_scraper(db_name=args.rawdb,
-                   base_url="https://www.goodreads.com/",
-                   start_url="https://www.goodreads.com/list/tag/non-fiction"):
+def master_scraper(
+    db_name=args.rawdb,
+    base_url="https://www.goodreads.com/",
+    start_url="https://www.goodreads.com/list/tag/non-fiction",
+):
 
     db = databases.connect_db(db_name=db_name)
     try:
@@ -80,14 +79,16 @@ def etl(archive_dir="archive", clean_db_name=args.cleandb):
                 """
                 INSERT OR IGNORE INTO archive_meta(archive_id) VALUES (?)
                 """,
-                (file,))
+                (file,),
+            )
             db.execute("COMMIT")
 
         to_process = db.execute(
             """
             SELECT archive_id FROM archive_meta
             WHERE process_date IS NULL
-            """)
+            """
+        )
 
         for archive_id in to_process:
             archive = databases.connect_db("archive/" + archive_id[0])
@@ -101,12 +102,7 @@ def etl(archive_dir="archive", clean_db_name=args.cleandb):
 
 
 if __name__ == "__main__":
-    p_1 = Process(target=master_scraper,
-                  name="scraper")
-    p_2 = Process(target=etl,
-                  name="etl")
+    p_1 = Process(target=master_scraper, name="scraper")
+    p_2 = Process(target=etl, name="etl")
     p_1.start()
     p_2.start()
-
-
-

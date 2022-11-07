@@ -11,7 +11,8 @@ from typing import Iterable
 from pathlib import Path
 
 from databases import connect_db
-#def fix_ownership(path):
+
+# def fix_ownership(path):
 #   """Change the owner of the file to SUDO_UID"""
 
 #    uid = os.environ.get('SUDO_UID')
@@ -20,7 +21,7 @@ from databases import connect_db
 #        os.chown(path, int(uid), int(gid))
 
 
-#if not os.path.exists('goodreads_scraper.log'):
+# if not os.path.exists('goodreads_scraper.log'):
 #    open('goodreads_scraper.log', 'a').close()
 #    fix_ownership('goodreads_scraper.log')
 
@@ -30,12 +31,11 @@ logger.setLevel(logging.INFO)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
-file_handler = logging.FileHandler('../goodreads_scraper.log', mode='a')
+file_handler = logging.FileHandler("../goodreads_scraper.log", mode="a")
 file_handler.setLevel(logging.INFO)
 
 
-formatter = logging.Formatter(
-    "%(asctime)s - %(levelname)s - %(message)s")
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 
@@ -47,18 +47,19 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
     _create_schema(raw_db)
 
     raw_db.execute("BEGIN")
-    raw_db.execute("INSERT OR IGNORE INTO raw_responses(link) VALUES (?)",
-                   (url,))
+    raw_db.execute("INSERT OR IGNORE INTO raw_responses(link) VALUES (?)", (url,))
     raw_db.execute("COMMIT")
 
     while True:
-        to_retrieve = [row[0] for row in
-                       raw_db.execute(
-                           """
+        to_retrieve = [
+            row[0]
+            for row in raw_db.execute(
+                """
                            SELECT link FROM raw_responses
                            WHERE retrieval_time IS NULL
-                           """)
-                       ]
+                           """
+            )
+        ]
 
         if not to_retrieve:
             logger.info("No more url to retrieve...")
@@ -70,10 +71,12 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
 
             for i, link in enumerate(to_retrieve):
 
-                logger.info(f"""
+                logger.info(
+                    f"""
                             Retrieving {link}...
                             Progress: {i + 1}/{len(to_retrieve)}
-                            """.strip())
+                            """.strip()
+                )
 
                 try:
                     r = _request_with_error_handling(url=link)
@@ -82,13 +85,12 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
                     time.sleep(random.uniform(30, 60))
                     continue
 
-                logger.info('INSERTING RAW HTML TO DATABASE...')
-                _update_db(conn=raw_db,
-                           link=link,
-                           response=r,
-                           time_utc=datetime.now(tz=tz.UTC))
+                logger.info("INSERTING RAW HTML TO DATABASE...")
+                _update_db(
+                    conn=raw_db, link=link, response=r, time_utc=datetime.now(tz=tz.UTC)
+                )
 
-                logger.info('GETTING NEW LINKS...')
+                logger.info("GETTING NEW LINKS...")
 
                 new_links = _get_new_links(r)
 
@@ -96,31 +98,31 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
                     logger.warning("NO LINKS FOUND...")
 
                 else:
-                    logger.info(
-                        f"FOUND NEW LINKS: {len(new_links)} LINKS.")
+                    logger.info(f"FOUND NEW LINKS: {len(new_links)} LINKS.")
 
                     for j, new_link in enumerate(new_links):
-                        is_good_link = (r'book/show/' in new_link['href']) or \
-                                (r'list/show/' in new_link['href']) or \
-                                (r'list/tag/' in new_link['href'])
+                        is_good_link = (
+                            (r"book/show/" in new_link["href"])
+                            or (r"list/show/" in new_link["href"])
+                            or (r"list/tag/" in new_link["href"])
+                        )
 
                         if is_good_link:
                             logger.info(
                                 f"""
                                 INSERTING NEW LINKS 
                                 {j + 1}/{len(new_links)}
-                                """)
+                                """
+                            )
 
-                            new_href = urljoin(base_url,
-                                               new_link['href'])
+                            new_href = urljoin(base_url, new_link["href"])
 
                             logger.info(f"INSERTING {new_href}...")
 
                             _insert_link_db(raw_db, link=new_href)
 
                         if time.time() > flush_time:
-                            backup_db_name = Path(
-                                f"archive/{int(time.time())}.db")
+                            backup_db_name = Path(f"archive/{int(time.time())}.db")
 
                             # if not backup_db_name.parent.exists():
                             #     backup_db_name.parent.mkdir(parents=True)
@@ -134,8 +136,10 @@ def get_book_data(raw_db: sqlite3.Connection, url: str, base_url: str) -> None:
 
 
 def _request_with_error_handling(url: str, **kwargs) -> requests.Response:
-    headers = {'user-agent': 'my-book-collection/0.0.1',
-               'Cookie': 'ccsid=215-1754205-4322857; locale=en; srb_8=1'}
+    headers = {
+        "user-agent": "my-book-collection/0.0.1",
+        "Cookie": "ccsid=215-1754205-4322857; locale=en; srb_8=1",
+    }
 
     r = requests.get(url, headers=headers, **kwargs)
 
@@ -148,24 +152,23 @@ def _request_with_error_handling(url: str, **kwargs) -> requests.Response:
     return r
 
 
-def _update_db(conn: sqlite3.Connection,
-               link: str,
-               response: requests.Response,
-               time_utc: datetime) -> None:
+def _update_db(
+    conn: sqlite3.Connection, link: str, response: requests.Response, time_utc: datetime
+) -> None:
     conn.execute("BEGIN")
     conn.execute(
         """
         REPLACE INTO raw_responses (link, response, retrieval_time)
         VALUES (?,?,?)
         """,
-        (link, response.text, time_utc)
+        (link, response.text, time_utc),
     )
     conn.execute("COMMIT")
 
 
 def _get_new_links(response: requests.Response) -> Iterable:
     selector = 'a[href*="?page="],a.bookTitle,a.listTitle'
-    parsed = BeautifulSoup(response.text, 'html.parser')
+    parsed = BeautifulSoup(response.text, "html.parser")
     new_links = parsed.select(selector)
 
     return new_links
@@ -179,7 +182,8 @@ def _insert_link_db(conn: sqlite3.Connection, link) -> None:
         raw_responses(link)
         VALUES (?)
         """,
-        (link,))
+        (link,),
+    )
     conn.execute("COMMIT")
 
 
@@ -193,7 +197,8 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             retrieval_time,
             archived
             )
-        """)
+        """
+    )
     conn.execute("COMMIT")
 
 
@@ -218,7 +223,8 @@ def _back_up_data(backup_db: sqlite3.Connection, input_db: sqlite3.Connection):
         """
         SELECT link, response FROM raw_responses
         WHERE archived IS NULL AND retrieval_time NOT NULL
-        """)
+        """
+    )
 
     for response in responses:
         backup_db.execute("BEGIN")
@@ -227,7 +233,7 @@ def _back_up_data(backup_db: sqlite3.Connection, input_db: sqlite3.Connection):
             REPLACE INTO raw_responses 
             VALUES (?,?,?)
             """,
-            (response + (datetime.now(tz=tz.UTC),))
+            (response + (datetime.now(tz=tz.UTC),)),
         )
         backup_db.execute("COMMIT")
 
@@ -238,14 +244,14 @@ def _back_up_data(backup_db: sqlite3.Connection, input_db: sqlite3.Connection):
             SET archived = ?
             WHERE link = ?
             """,
-            (datetime.now(tz=tz.UTC), response[0])
+            (datetime.now(tz=tz.UTC), response[0]),
         )
         input_db.execute("COMMIT")
 
 
 if __name__ == "__main__":
-    base_url = r'https://www.goodreads.com/'
-    start_url = r'https://www.goodreads.com/list/tag/non-fiction'
+    base_url = r"https://www.goodreads.com/"
+    start_url = r"https://www.goodreads.com/list/tag/non-fiction"
 
     dbname = "goodreads_raw_test.db"
     db = connect_db(db_name=dbname)

@@ -53,20 +53,25 @@ def create_sqlite_schema(conn: sqlite3.Connection, schema: str) -> None:
                 process_date,
                 volume
                 );
+                
+            CREATE TABLE IF NOT EXISTS book_author (
+                book_id,
+                author_id
+                );
             """
         )
 
 
-def insert_data_sqlite(conn: sqlite3.Connection,
-                       mapping: dict,
-                       schema: str) -> None:
-    valid_schemas = ["books", "awards", "authors"]
+def insert_data_sqlite(conn: sqlite3.Connection, mapping: dict, schema: str) -> None:
+
+    valid_schemas = ["books", "awards", "authors", "book_author"]
     if schema not in valid_schemas:
         raise ValueError(f"Schema has to be one of {valid_schemas}.")
 
+    conn.execute("BEGIN")
+    logger.info(f"Insert data to {schema} schema...")
+
     if schema == "books":
-        logger.info(f"Insert data to {schema} schema...")
-        conn.execute("BEGIN")
         conn.execute(
             """
             REPLACE INTO books
@@ -98,7 +103,19 @@ def insert_data_sqlite(conn: sqlite3.Connection,
                 :topics_count
                 )
             """,
-            mapping
+            mapping,
         )
-        conn.execute("COMMIT")
 
+    if schema == "book_author":
+        conn.execute(
+            """
+            INSERT INTO book_author
+            VALUES (
+                :book_id,
+                :author_id
+            )
+            """,
+            mapping,
+        )
+
+    conn.execute("COMMIT")

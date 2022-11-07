@@ -9,7 +9,7 @@ import json
 
 
 def get_int(string):
-    pattern = '([0-9]+)'
+    pattern = "([0-9]+)"
     value = re.findall(pattern=pattern, string=string)
 
     return value
@@ -52,12 +52,14 @@ def get_num_question(string):
 check = {}
 
 for i in range(1):
-    headers = {'User-Agent': "Mozilla/5.0",
-               'Cookie': 'ccsid=215-4754242-4322857; locale=en; srb_8=1'}
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Cookie": "ccsid=215-4754242-4322857; locale=en; srb_8=1",
+    }
     r = requests.get(
-        "https://www.goodreads.com/book/show/6930002-the-iron-witch",
-        headers=headers)
-    if 'json' in r.text:
+        "https://www.goodreads.com/book/show/6930002-the-iron-witch", headers=headers
+    )
+    if "json" in r.text:
         check[i] = r.text
 
     # time.sleep(random.uniform(2, 3))
@@ -72,13 +74,13 @@ data = parsed.find("script", id="__NEXT_DATA__")
 
 if data:
     data = json.loads(data.text)
-    parent_dict = data['props']['pageProps']['apolloState']
+    parent_dict = data["props"]["pageProps"]["apolloState"]
     for key in parent_dict:
-        if 'Book' in key:
+        if "Book" in key:
             book_data = parent_dict[key]
-        if 'Work' in key:
+        if "Work" in key:
             work_data = parent_dict[key]
-        if 'Series' in key:
+        if "Series" in key:
             series_data = parent_dict[key]
             data_map["book_series_title"] = series_data.get("title")
             data_map["book_series_url"] = series_data.get("webUrl")
@@ -95,16 +97,14 @@ if data:
     book_details = book_data["details"]
     data_map["format"] = book_details["format"]
     data_map["num_pages"] = book_details["numPages"]
-    data_map["publication_time"] = book_details[
-        "publicationTime"] / 1000
+    data_map["publication_time"] = book_details["publicationTime"] / 1000
     data_map["publisher"] = book_details["publisher"]
     data_map["isbn"] = book_details.get("isbn")
     data_map["isbn_13"] = book_details.get("isbn_13")
     data_map["language"] = book_details["language"]["name"]
 
     work_details = work_data["details"]
-    data_map["num_of_awards"] = len(
-        work_details["awardsWon"])
+    data_map["num_of_awards"] = len(work_details["awardsWon"])
 
     stats = work_data["stats"]
     data_map["average_rating"] = stats["averageRating"]
@@ -124,24 +124,24 @@ if data:
     for key in work_data:
         if "questions" in key:
             question = work_data[key]
-    data_map["questions_count"] = question['totalCount']
+    data_map["questions_count"] = question["totalCount"]
 
     for key in work_data:
         if "topics" in key:
             topic = work_data[key]
-    data_map["topics_count"] = topic['totalCount']
+    data_map["topics_count"] = topic["totalCount"]
 
 else:
     data = parsed.find(id="metacol")
     data_map["title"] = data.find(id="bookTitle").text.strip()
     data_map["link"] = "link"
-    data_map["format"] = data.find(attrs={'itemprop': 'bookFormat'}).text
-    num_pages = data.find(attrs={'itemprop': 'numberOfPages'}).text
+    data_map["format"] = data.find(attrs={"itemprop": "bookFormat"}).text
+    num_pages = data.find(attrs={"itemprop": "numberOfPages"}).text
     data_map["num_pages"] = get_int(num_pages)[0]
 
-    details = data.find(id="details").find(class_="row",
-                                           string=re.compile("published",
-                                                             re.IGNORECASE))
+    details = data.find(id="details").find(
+        class_="row", string=re.compile("published", re.IGNORECASE)
+    )
     # publication_list = details.text.strip().split('\n')
     # publication_time = publication_list[1].strip()
     # data_map["publication_time"] = convert_to_date(publication_time)
